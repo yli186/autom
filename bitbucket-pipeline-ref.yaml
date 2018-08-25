@@ -1,0 +1,44 @@
+# This is a sample build configuration for JavaScript.
+# Check our guides at https://confluence.atlassian.com/x/14UWN for more examples.
+# Only use spaces to indent your .yml configuration.
+# -----
+# You can specify a custom docker image from Docker Hub as your build environment.
+image: trion/ng-cli
+
+pipelines:
+  default:
+    - step:
+        script: # Modify the commands below to build your repository.
+           - npm version
+          #- npm install
+          #- ng build
+
+    - step:
+        name: Deploy to GCP kubernetes
+        deployment: staging
+        trigger: manual
+        script:
+        # setup google cloud sdk
+          - curl -o /tmp/google-cloud-sdk.tar.gz https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-sdk-155.0.0-linux-x86_64.tar.gz
+          - tar -xvf /tmp/google-cloud-sdk.tar.gz -C /tmp/
+          - /tmp/google-cloud-sdk/install.sh -q
+          - source /tmp/google-cloud-sdk/path.bash.inc
+          # Installing kubectl
+          - gcloud components install kubectl -q
+          - echo $GCLOUD_API_KEYFILE | base64 --decode --ignore-garbage > ./gcloud-api-key.json
+          - gcloud auth activate-service-account --key-file gcloud-api-key.json
+           # Linking to the Google Cloud project
+          - gcloud config set project $GCLOUD_PROJECT
+          - gcloud container clusters get-credentials $GCLOUD_CLUSTER --zone=$GCLOUD_ZONE
+          # build project and image/push to google
+          - docker build . -t us.gcr.io/$GCLOUD_PROJECT/$PROJECT_NAME:$BITBUCKET_COMMIT
+          - gcloud docker -- push us.gcr.io/$GCLOUD_PROJECT/$PROJECT_NAME:$BITBUCKET_COMMIT
+          - docker tag us.gcr.io/$GCLOUD_PROJECT/$PROJECT_NAME:$BITBUCKET_COMMIT us.gcr.io/$GCLOUD_PROJECT/$PROJECT_NAME:latest
+          - gcloud docker -- push us.gcr.io/$GCLOUD_PROJECT/$PROJECT_NAME:latest
+          - kubectl apply -f <your deployment/svc yaml>
+        services:
+           - docker
+definitions:
+  services:
+    docker:
+      memory: 3072
